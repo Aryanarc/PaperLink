@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pymupdf
+langchain
+langchain-community
+chromadb
+sentence-transformers
+rank-bm25
+arxiv
+ragas
+python-dotenv
