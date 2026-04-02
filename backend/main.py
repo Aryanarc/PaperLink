@@ -4,6 +4,10 @@ import os
 from ingestion import extract_text_from_pdf,chunk_pages
 from fastapi.middleware.cors import CORSMiddleware
 
+from vector_store import embed_and_store, search
+from pydantic import BaseModel
+
+
 app=FastAPI(title="Papermind")
 
 app.add_middleware(
@@ -28,18 +32,32 @@ def ingest(file: UploadFile =File(...)):
     #extract and then chunk
     pages=extract_text_from_pdf(temp_path)
     chunks=chunk_pages(pages,source_filename=file.filename)
+    stored=embed_and_store(chunks)
+
 
     os.remove(temp_path)
 
     return {
         "filename":file.filename,
         "pages":len(pages),
-        "chunks":len(chunks),
-        "sample_chunk":chunks[0] if chunks else None #previewing the first chunk
-
+        "chunks":stored,
+        "status": "stored in vector db"
     } 
 
+class QueryRequest(BaseModel):
+        question: str
+
+
 @app.post("/query")
-def query():
-    return {"message" : "Not Implemented  Yet"}
+def query(request: QueryRequest):
+    
+    try:
+        results = search(request.question)
+        return {
+            "results": results
+        }
+    except Exception as e:
+        return {
+            "error": str(e)
+        }
  

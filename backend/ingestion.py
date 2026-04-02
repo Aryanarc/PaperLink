@@ -1,4 +1,6 @@
 import fitz # PyMuPDF
+from vector_store import embed_and_store
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 def extract_text_from_pdf(pdf_path:str) -> list[dict]:
