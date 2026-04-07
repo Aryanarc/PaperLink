@@ -1,11 +1,18 @@
 from fastapi import FastAPI, UploadFile, File
 import shutil
 import os
+import json
 from ingestion import extract_text_from_pdf,chunk_pages
 from fastapi.middleware.cors import CORSMiddleware
 
 from vector_store import embed_and_store, search
 from pydantic import BaseModel
+from prompts import SYSTEM_PROMPT, USER_PROMPT, format_context
+from langchain_community.chat_models import ChatOllama
+from fastapi.responses import StreamingResponse
+from langchain_core.messages import HumanMessage, SystemMessage
+
+llm = ChatOllama(model="mistral")
 
 
 app=FastAPI(title="Papermind")
@@ -49,14 +56,32 @@ class QueryRequest(BaseModel):
 
 
 @app.post("/query")
-def query(request: QueryRequest):
-    
+async def query(request: QueryRequest):
     try:
         results = search(request.question)
-        return {
-            "results": results
-        }
+        context_str = format_context(results)
+
+        async def generate_response():
+            full_system_prompt = SYSTEM_PROMPT.format(context=context_str)
+            full_user_prompt = USER_PROMPT.format(question=request.question)
+
+            messages = [
+                SystemMessage(content=full_system_prompt),
+                HumanMessage(content=full_user_prompt),
+            ]
+            
+            yield f"event: sources\ndata: {json.dumps(results)}\n\n"
+            yield "event: start\ndata: {}\n\n"
+
+            for chunk in llm.stream(messages):
+                yield f"event: stream\ndata: {json.dumps({'token': chunk.content})}\n\n"
+
+            yield "event: end\ndata: {}\n\n"
+
+        return StreamingResponse(generate_response(), media_type="text/event-stream")
+
     except Exception as e:
+        # For non-streaming errors, return a regular JSON response
         return {
             "error": str(e)
         }
