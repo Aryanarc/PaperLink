@@ -11,6 +11,7 @@ from prompts import SYSTEM_PROMPT, USER_PROMPT, format_context
 from langchain_community.chat_models import ChatOllama
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
+from arxiv_fetcher import fetch_arxiv_pdf
 
 llm = ChatOllama(model="mistral")
 
@@ -51,8 +52,41 @@ def ingest(file: UploadFile =File(...)):
         "status": "stored in vector db"
     } 
 
+class ArxivRequest(BaseModel):
+    url_or_id: str
+
+
+
+@app.post("/ingest-arxiv")
+def ingest_arxiv(request: ArxivRequest):
+    # 1. Fetch PDF + metadata
+    paper = fetch_arxiv_pdf(request.url_or_id)
+
+    # 2. Extract + chunk (same pipeline as /ingest)
+    pages = extract_text_from_pdf(paper["pdf_path"])
+    chunks = chunk_pages(pages, source_filename=paper["filename"])
+
+    # 3. Store embeddings
+    stored = embed_and_store(chunks)
+
+    # 4. Cleanup
+    os.remove(paper["pdf_path"])
+
+    # 5. Return metadata + stats
+    return {
+        "title": paper["title"],
+        "arxiv_id": paper["arxiv_id"],
+        "authors": paper["authors"],
+        "abstract": paper["abstract"],
+        "chunks": stored,
+        "status": "stored in vector db"
+    }
+
+
+
 class QueryRequest(BaseModel):
         question: str
+
 
 
 @app.post("/query")
