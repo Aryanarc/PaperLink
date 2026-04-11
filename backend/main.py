@@ -2,9 +2,8 @@ from fastapi import FastAPI, UploadFile, File
 import shutil
 import os
 import json
-from ingestion import extract_text_from_pdf,chunk_pages
+from ingestion import extract_text_from_pdf, chunk_pages
 from fastapi.middleware.cors import CORSMiddleware
-
 from vector_store import embed_and_store, search
 from pydantic import BaseModel
 from prompts import SYSTEM_PROMPT, USER_PROMPT, format_context
@@ -12,81 +11,89 @@ from langchain_community.chat_models import ChatOllama
 from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from arxiv_fetcher import fetch_arxiv_pdf
+from evaluate import get_eval_router
+from pydantic import BaseModel
+
 
 llm = ChatOllama(model="mistral")
 
-
-app=FastAPI(title="Papermind")
+app = FastAPI(title="Papermind")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
- )
+)
+
+# mount the evaluation router — adds POST /evaluate
+app.include_router(get_eval_router())
 
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
+
 @app.post("/ingest")
-def ingest(file: UploadFile =File(...)):
-    #saving the uploaded file temporarily
-    temp_path=f"/tmp/{file.filename}"
-    with open(temp_path,"wb") as buffer:
-        shutil.copyfileobj(file.file,buffer)
+def ingest(file: UploadFile = File(...)):
+    temp_path = f"/tmp/{file.filename}"
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
 
-    #extract and then chunk
-    pages=extract_text_from_pdf(temp_path)
-    chunks=chunk_pages(pages,source_filename=file.filename)
-    stored=embed_and_store(chunks)
-
+    pages = extract_text_from_pdf(temp_path)
+    chunks = chunk_pages(pages, source_filename=file.filename)
+    stored = embed_and_store(chunks)
 
     os.remove(temp_path)
 
     return {
-        "filename":file.filename,
-        "pages":len(pages),
-        "chunks":stored,
-        "status": "stored in vector db"
-    } 
-
-class ArxivRequest(BaseModel):
-    url_or_id: str
-
-
-
-@app.post("/ingest-arxiv")
-def ingest_arxiv(request: ArxivRequest):
-    # 1. Fetch PDF + metadata
-    paper = fetch_arxiv_pdf(request.url_or_id)
-
-    # 2. Extract + chunk (same pipeline as /ingest)
-    pages = extract_text_from_pdf(paper["pdf_path"])
-    chunks = chunk_pages(pages, source_filename=paper["filename"])
-
-    # 3. Store embeddings
-    stored = embed_and_store(chunks)
-
-    # 4. Cleanup
-    os.remove(paper["pdf_path"])
-
-    # 5. Return metadata + stats
-    return {
-        "title": paper["title"],
-        "arxiv_id": paper["arxiv_id"],
-        "authors": paper["authors"],
-        "abstract": paper["abstract"],
+        "filename": file.filename,
+        "pages": len(pages),
         "chunks": stored,
         "status": "stored in vector db"
     }
 
 
+# Day 7: arXiv direct import
+
+class ArxivIngestRequest(BaseModel):
+    url_or_id: str
+
+
+@app.post("/ingest-arxiv")
+def ingest_arxiv(request: ArxivIngestRequest):
+    """
+    Accepts an arXiv URL or paper ID.
+    Fetches the PDF automatically, runs through the same pipeline as /ingest.
+    """
+    paper_info = fetch_arxiv_pdf(request.url_or_id)
+
+    pdf_path = paper_info["pdf_path"]
+    filename = paper_info["filename"]
+
+    pages = extract_text_from_pdf(pdf_path)
+    chunks = chunk_pages(pages, source_filename=filename)
+    stored = embed_and_store(chunks)
+
+    os.remove(pdf_path)
+
+    return {
+        "arxiv_id": paper_info["arxiv_id"],
+        "title": paper_info["title"],
+        "authors": paper_info["authors"],
+        "abstract": paper_info["abstract"],
+        "filename": filename,
+        "pages": len(pages),
+        "chunks": stored,
+        "status": "stored in vector db"
+    }
+
+
+# Query
 
 class QueryRequest(BaseModel):
-        question: str
-
+    question: str
 
 
 @app.post("/query")
@@ -103,7 +110,7 @@ async def query(request: QueryRequest):
                 SystemMessage(content=full_system_prompt),
                 HumanMessage(content=full_user_prompt),
             ]
-            
+
             yield f"event: sources\ndata: {json.dumps(results)}\n\n"
             yield "event: start\ndata: {}\n\n"
 
@@ -115,8 +122,4 @@ async def query(request: QueryRequest):
         return StreamingResponse(generate_response(), media_type="text/event-stream")
 
     except Exception as e:
-        # For non-streaming errors, return a regular JSON response
-        return {
-            "error": str(e)
-        }
- 
+        return {"error": str(e)}
