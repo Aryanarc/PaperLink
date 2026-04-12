@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from langchain_core.messages import HumanMessage, SystemMessage
 from arxiv_fetcher import fetch_arxiv_pdf
 from evaluate import get_eval_router
-from pydantic import BaseModel
+import time
 
 
 llm = ChatOllama(model="mistral")
@@ -123,3 +123,15 @@ async def query(request: QueryRequest):
 
     except Exception as e:
         return {"error": str(e)}
+
+
+def fake_stream():
+    text = "This is a streamed response from your RAG system."
+    for char in text:
+        yield f"data: {char}\n\n"
+        time.sleep(0.02)
+    yield "data: [DONE]\n\n"
+
+@app.get("/api/stream")
+def stream(q: str):
+    return StreamingResponse(fake_stream(), media_type="text/event-stream")
