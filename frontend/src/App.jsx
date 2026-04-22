@@ -5,16 +5,16 @@ import MetricsPanel from "./components/MetricsPanel";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [liveMetrics, setLiveMetrics] = useState(null);
 
   return (
     <div className="h-screen flex flex-col bg-bg text-text">
 
-      {/* Premium Navbar */}
+      {/* Navbar */}
       <nav className="h-16 border-b border-border/50 backdrop-blur-xl bg-bg/80 sticky top-0 z-50">
         <div className="h-full px-6 flex items-center justify-between">
-          {/* Logo */}
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
               className="lg:hidden p-2 hover:bg-panel rounded-lg transition-colors"
             >
@@ -34,7 +34,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Right Actions */}
           <div className="flex items-center gap-2">
             <button className="px-4 py-2 text-sm text-muted hover:text-text rounded-lg hover:bg-panel transition-colors">
               History
@@ -54,31 +53,28 @@ export default function App() {
 
       {/* Main Layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar - responsive */}
         <div className={`
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
-          fixed lg:relative inset-y-16 left-0 z-40 
+          ${sidebarOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}
+          fixed lg:relative inset-y-16 left-0 z-40
           w-80 lg:w-80
           transition-transform duration-300 ease-in-out
         `}>
           <Sidebar />
         </div>
 
-        {/* Overlay for mobile */}
         {sidebarOpen && (
-          <div 
+          <div
             className="fixed inset-0 bg-black/50 z-30 lg:hidden"
             onClick={() => setSidebarOpen(false)}
           />
         )}
 
-        {/* Chat Area */}
         <div className="flex-1 flex flex-col">
-          <ChatPanel />
+          <ChatPanel onMetrics={setLiveMetrics} />
         </div>
       </div>
 
-      <MetricsPanel />
+      <MetricsPanel liveMetrics={liveMetrics} />
     </div>
   );
 }
