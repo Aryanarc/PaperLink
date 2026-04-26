@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/app/backend/chroma_db
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      # This needs to be configured in the frontend application to pick up this variable.
+      # For Vite, it's usually import.meta.env.VITE_API_URL
+      - VITE_API_URL=http://backend:8000
+    depends_on:
+      - backend
+
+volumes:
+  chroma_data:
