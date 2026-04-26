@@ -181,7 +181,12 @@ def _compute_live_metrics(question: str, answer: str, contexts: list[str]) -> di
         "relevancy":    relevancy,
         "precision":    precision,
     }
-
+# In your endpoint
+@app.post("/embed")
+async def embed_text(text: str):
+    embedding_model = get_model()  # Only loads when first called
+    embeddings = embedding_model.encode(text)
+    return {"embeddings": embeddings.tolist()}
 
 @app.post("/query")
 async def query(request: QueryRequest):

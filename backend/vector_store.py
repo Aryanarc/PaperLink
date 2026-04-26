@@ -1,13 +1,29 @@
 import chromadb
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from  sentence_transformers import CrossEncoder
 from rank_bm25 import BM25Okapi
 import numpy as np
 import re
 from typing import List, Dict, Any, Optional, Set
 
-# loading the bge model -- stays in memory
-model = SentenceTransformer("BAAI/bge-small-en-v1.5")
 
+# loading the bge model -- stays in memory
+#model = SentenceTransformer("BAAI/bge-small-en-v1.5")
+# main.py
+model = None
+
+def get_model():
+    global model
+    if model is None:
+        from sentence_transformers import SentenceTransformer
+        model = SentenceTransformer('all-MiniLM-L6-v2')
+    return model
+
+# In your endpoint
+@app.post("/embed")
+async def embed_text(text: str):
+    embedding_model = get_model()  # Only loads when first called
+    embeddings = embedding_model.encode(text)
+    return {"embeddings": embeddings.tolist()}
 # Load the cross-encoder reranker model
 reranker = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
