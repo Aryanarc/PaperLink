@@ -1,20 +1,21 @@
 """
-LLM Service for Papermind - Local Mistral Integration via Ollama
-Handles all interactions with the local Mistral model
+LLM Service for Papermind - HuggingFace Inference API Integration
+Handles all interactions with Mistral via HuggingFace (cloud deployment ready)
 """
 
-import ollama
 import os
+import httpx
 from typing import List, Dict, AsyncGenerator
 
 
 class LLMService:
-    """Service for interacting with local Mistral LLM via Ollama"""
+    """Service for interacting with Mistral LLM via HuggingFace Inference API"""
     
     def __init__(self):
-        # Default to mistral model, can be overridden via environment variable
-        self.model_name = os.getenv("OLLAMA_MODEL", "mistral")
-        self.base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        # HuggingFace Inference API configuration
+        self.api_token = os.getenv("HF_TOKEN", "")
+        self.model_id = os.getenv("HF_MODEL", "mistralai/Mistral-7B-Instruct-v0.2")
+        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_id}"
         
         # System prompt for RAG
         self.system_prompt = """You are a helpful research assistant. Your role is to answer questions about academic papers based on the provided context.
@@ -32,7 +33,7 @@ Guidelines:
         context_docs: List[Dict[str, any]]
     ) -> AsyncGenerator[str, None]:
         """
-        Stream a chat response using the local Mistral model via Ollama
+        Stream a chat response using HuggingFace Inference API
         
         Args:
             question: The user's question
@@ -44,36 +45,59 @@ Guidelines:
         # Format context for the model
         context_text = self._format_context(context_docs)
         
-        # Build the user message
-        user_message = f"""Context from research papers:
+        # Build the prompt in Mistral instruction format
+        prompt = f"""<s>[INST] {self.system_prompt}
+
+Context from research papers:
 
 {context_text}
 
-Question: {question}
+Question: {question} [/INST]"""
 
-Please provide a detailed answer based on the context above."""
+        headers = {
+            "Authorization": f"Bearer {self.api_token}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "inputs": prompt,
+            "parameters": {
+                "max_new_tokens": 1000,
+                "temperature": 0.7,
+                "top_p": 0.95,
+                "return_full_text": False
+            },
+            "stream": True
+        }
 
         try:
-            # Create the streaming response from Ollama
-            stream = ollama.chat(
-                model=self.model_name,
-                messages=[
-                    {"role": "system", "content": self.system_prompt},
-                    {"role": "user", "content": user_message}
-                ],
-                stream=True,
-            )
-            
-            # Stream tokens back to the client
-            for chunk in stream:
-                if 'message' in chunk and 'content' in chunk['message']:
-                    content = chunk['message']['content']
-                    if content:
-                        yield content
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                async with client.stream("POST", self.api_url, headers=headers, json=payload) as response:
+                    if response.status_code != 200:
+                        error_text = await response.aread()
+                        print(f"HuggingFace API error: {response.status_code} - {error_text}")
+                        yield f"\n\n[Error: API returned {response.status_code}. Please check HF_TOKEN in environment variables]"
+                        return
+                    
+                    async for line in response.aiter_lines():
+                        if line.startswith("data:"):
+                            try:
+                                import json
+                                data = json.loads(line[5:])
+                                if isinstance(data, dict) and "token" in data:
+                                    text = data["token"].get("text", "")
+                                    if text:
+                                        yield text
+                                elif isinstance(data, list) and len(data) > 0:
+                                    text = data[0].get("generated_text", "")
+                                    if text:
+                                        yield text
+                            except json.JSONDecodeError:
+                                continue
                         
         except Exception as e:
-            print(f"Error in Mistral streaming: {e}")
-            yield f"\n\n[Error: Failed to get response from Mistral - {str(e)}. Make sure Ollama is running with 'ollama run mistral']"
+            print(f"Error in HuggingFace streaming: {e}")
+            yield f"\n\n[Error: {str(e)}. Make sure HF_TOKEN is set correctly]"
     
     def _format_context(self, context_docs: List[Dict[str, any]]) -> str:
         """
@@ -98,30 +122,3 @@ Please provide a detailed answer based on the context above."""
             formatted_chunks.append(chunk_text)
         
         return "\n\n---\n\n".join(formatted_chunks)
-    
-    def check_connection(self) -> bool:
-        """
-        Check if Ollama is running and the model is available
-        
-        Returns:
-            True if connection successful, False otherwise
-        """
-        try:
-            # Try to list models to verify connection
-            models = ollama.list()
-            
-            # Check if our model is available
-            model_names = [model.get('name', '').split(':')[0] for model in models.get('models', [])]
-            
-            if self.model_name not in model_names:
-                print(f"Warning: Model '{self.model_name}' not found. Available models: {model_names}")
-                print(f"Run 'ollama pull {self.model_name}' to download it")
-                return False
-                
-            print(f"✓ Connected to Ollama - Model '{self.model_name}' is ready")
-            return True
-            
-        except Exception as e:
-            print(f"✗ Failed to connect to Ollama: {e}")
-            print("Make sure Ollama is running: https://ollama.ai")
-            return False
