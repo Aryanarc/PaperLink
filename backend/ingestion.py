@@ -1,4 +1,4 @@
-import fitz  # PyMuPDF
+import pypdf # PyMuPDF
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # FIX: removed unused `from vector_store import embed_and_store`
